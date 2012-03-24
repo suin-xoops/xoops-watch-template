@@ -1,24 +1,30 @@
 # xoops-watch-template.php
 
-![image](image.png)
+Template auto-update tool for XOOPS.
+
+![image](https://github.com/suin/xoops-watch-template/raw/master/image.png)
 
 ## Install
 
 ```
-git clone 
+git clone git://github.com/suin/xoops-watch-template.git
 ```
 
 ## Usage
 
 ```
-usage: watch-template.php <mainfile_path> <module_dirname> <watch_dir>
+php watch-template.php <mainfile_path> <module_dirname> <watch_dir>
+```
 
-Template auto-update tool for XOOPS.
-
-positional arguments:
-  mainfile_path  : Full path to mainfile.php
-  module_dirname : Module directory name
-  watch_dir      : Directory to watch
+or
 
 ```
+chomod +x watch-template.php
+./watch-template.php <mainfile_path> <module_dirname> <watch_dir>
+```
+
+
+* mainfile_path  : Full path to mainfile.php
+* module_dirname : Module directory name
+* watch_dir      : Directory to watch
 
