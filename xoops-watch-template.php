@@ -98,6 +98,7 @@ if ( file_exists($mainfile) === false )
 // This is need: Developers sometimes use theses parameters as XOOPS_URL
 $_SERVER['HTTP_HOST'] = 'localhost';
 $_SERVER['SERVER_NAME'] = 'localhost';
+$_SERVER['REMOTE_ADDR'] = '127.0.0.1';
 
 define('_LEGACY_PREVENT_EXEC_COMMON_', true);
 define('OH_MY_GOD_HELP_ME', true);
@@ -114,7 +115,6 @@ $_SERVER['SCRIPT_NAME'] = $_SERVER['REQUEST_URI'];
 $_SERVER['PHP_SELF'] = $_SERVER['REQUEST_URI'];
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_USER_AGENT'] = 'CLI XOOPS Client';
-$_SERVER['REMOTE_ADDR'] = '127.0.0.1';
 
 // I'm admin
 $_SESSION['xoopsUserId'] = 1;
@@ -173,8 +173,7 @@ if ( is_readable($watchDir) === false )
 	exit(1);
 }
 
-echo "Start watching module: ", $module->get('name'), ' ', $watchDir , PHP_EOL;
-echo "To stop watching: Ctrl + C", PHP_EOL;
+echo "Preparing...", PHP_EOL;
 
 $watchDirFiles = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($watchDir));
 
@@ -185,6 +184,13 @@ foreach ( $watchDirFiles as $file )
 	$file->lastMTime = $file->getMTime();
 	$files[] = $file;
 }
+
+echo 'Watch list:', PHP_EOL;
+echo '  - '.implode(PHP_EOL.'  - ', array_map('basename', $files)), PHP_EOL;
+echo PHP_EOL;
+
+echo "Start watching module: ", $module->get('name'), ' ', $watchDir , PHP_EOL;
+echo "To stop watching: Ctrl + C", PHP_EOL;
 
 while ( true )
 {
