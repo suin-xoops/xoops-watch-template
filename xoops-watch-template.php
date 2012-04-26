@@ -1,21 +1,19 @@
 #!/usr/bin/env php
 <?php
 
-//error_reporting(E_ALL);
-//ini_set('display_errors', 1);
+error_reporting(E_ALL ^ E_STRICT);
+ini_set('display_errors', 1);
 
 function print_usage()
 {
 	$scriptName = basename($_SERVER['argv'][0]);
 
-	echo "usage: $scriptName <mainfile_path> <module_dirname> <watch_dir>", PHP_EOL;
+	echo "usage: $scriptName <mainfile_path>", PHP_EOL;
 	echo PHP_EOL;
 	echo "Template auto-update tool for XOOPS.", PHP_EOL;
 	echo PHP_EOL;
 	echo "positional arguments:", PHP_EOL;
 	echo "  mainfile_path  : Full path to mainfile.php", PHP_EOL;
-	echo "  module_dirname : Module directory name", PHP_EOL;
-	echo "  watch_dir      : Directory to watch", PHP_EOL;
 }
 
 function get_module($dirname)
@@ -31,63 +29,14 @@ function get_module($dirname)
 	return $module;
 }
 
-function execute_module_update($dirname)
-{
-	$updateSuccess = new XCube_Delegate();
-	$updateSuccess->register('Legacy_ModuleUpdateAction.UpdateSuccess');
-
-	$updateFail = new XCube_Delegate();
-	$updateFail->register('Legacy_ModuleUpdateAction.UpdateFail');
-
-	$module = get_module($dirname);
-
-	$dirname = $module->get('dirname');
-	$installer = Legacy_ModuleInstallUtils::createUpdater($dirname);
-	$installer->setCurrentXoopsModule($module);
-
-	// Load the manifesto, and set it as the target object.
-	$module->loadInfoAsVar($dirname);
-	$module->set('name', $module->get('name'));
-	$installer->setTargetXoopsModule($module);
-	$installer->executeUpgrade();
-
-	if ( $installer->mLog->hasError() === false )
-	{
-		$updateSuccess->call(new XCube_Ref($module), new XCube_Ref($installer->mLog));
-		XCube_DelegateUtils::call(
-			'Legacy.Admin.Event.ModuleUpdate.' . ucfirst($dirname . '.Success'),
-			new XCube_Ref($module),
-			new XCube_Ref($installer->mLog));
-		return true;
-	}
-	else
-	{
-		$updateFail->call(new XCube_Ref($module), new XCube_Ref($installer->mLog));
-		XCube_DelegateUtils::call(
-			'Legacy.Admin.Event.ModuleUpdate.' . ucfirst($dirname . '.Fail'),
-			new XCube_Ref($module),
-			new XCube_Ref($installer->mLog));
-		return false;
-	}
-
-	/*
-	foreach ( $installer->mLog->mMessages as $message )
-	{
-		echo $message['message'], PHP_EOL;
-	}
-	*/
-}
-
-if ( $_SERVER['argc'] !== 4 )
+if ( $_SERVER['argc'] !== 2 )
 {
 	print_usage();
 	exit(1);
 }
 
 $mainfile = $_SERVER['argv'][1];
-$dirname  = $_SERVER['argv'][2];
-$watchDir = $_SERVER['argv'][3];
-$watchDir = rtrim($watchDir, '/\\');
+
 
 if ( file_exists($mainfile) === false )
 {
@@ -133,6 +82,7 @@ $controller->_setupLanguage();
 $controller->_setupTextFilter();
 $controller->_setupConfig();
 $controller->_setupDebugger();
+error_reporting(E_ALL ^ E_STRICT);//TODO
 $controller->_processPreBlockFilter();
 $controller->_setupUser();
 $controller->setupModuleContext();
@@ -147,83 +97,233 @@ while ( ob_get_level() > 0 )
 require_once XOOPS_LEGACY_PATH . '/admin/class/ModuleInstallUtils.class.php';
 require_once XOOPS_LEGACY_PATH . '/language/english/admin.php';
 
-$module = get_module($dirname);
 
-if ( is_object($module) === false )
+// List up modules
+echo "Listing up modules...", PHP_EOL;
+
+$moduleHandler = xoops_gethandler('module');
+$moduleObjects = $moduleHandler->getObjects();
+$moduleDirectoryNames = array();
+
+foreach ( $moduleObjects as $moduleObject )
 {
-	echo "Module not found: ", $dirname, PHP_EOL;
-	exit(1);
+	$moduleDirectoryName = $moduleObject->get('dirname');
+
+	if ( is_dir(XOOPS_MODULE_PATH.'/'.$moduleDirectoryName) === true )
+	{
+		$moduleDirectoryNames[] = $moduleDirectoryName;
+	}
 }
 
-if ( file_exists($watchDir) === false )
+
+
+function get_trust_dirname($dirname)
 {
-	echo "Watch directory not found: ", $watchDir, PHP_EOL;
-	exit(1);
+	$mytrustdirnameFile = XOOPS_MODULE_PATH . '/' . $dirname . '/mytrustdirname.php';
+
+	if ( file_exists($mytrustdirnameFile) === true )
+	{
+		$mytrustdirname = null;
+		require($mytrustdirnameFile);
+
+		if ( $mytrustdirname ) {
+			return $mytrustdirname;
+		}
+	}
+
+	return false;
 }
 
-if ( is_dir($watchDir) === false )
+// List up template paths
+$templateDirectories = array();
+
+foreach ( $moduleDirectoryNames as $moduleDirectoryName )
 {
-	echo "Not directory: ", $watchDir, PHP_EOL;
-	exit(1);
+	$trustDirectoryName = get_trust_dirname($moduleDirectoryName);
+
+	if ( $trustDirectoryName === false )
+	{
+		$templateDirectory = sprintf('%s/%s/templates', XOOPS_MODULE_PATH, $moduleDirectoryName);
+	}
+	else
+	{
+		$templateDirectory = sprintf('%s/modules/%s/templates', XOOPS_TRUST_PATH, $trustDirectoryName);
+	}
+
+	if ( is_dir($templateDirectory) === true )
+	{
+		$templateDirectories[$moduleDirectoryName] = $templateDirectory;
+	}
 }
 
-if ( is_readable($watchDir) === false )
+// Print template directories.
+echo "Template directories", PHP_EOL;
+
+$padding = max(array_map('strlen', array_keys($templateDirectories)));
+
+foreach ( $templateDirectories as $moduleDirectoryName => $templateDirectory )
 {
-	echo "Not readable: ", $watchDir, PHP_EOL;
-	exit(1);
+	$moduleDirectoryName = str_pad($moduleDirectoryName, $padding, ' ', STR_PAD_RIGHT);
+	echo sprintf("  - %s : %s", $moduleDirectoryName, $templateDirectory), PHP_EOL;
 }
 
-echo "Preparing...", PHP_EOL;
-
-$watchDirFiles = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($watchDir));
-
-$files = array();
-
-foreach ( $watchDirFiles as $file )
+class Template
 {
-	$file->lastMTime = $file->getMTime();
-	$files[] = $file;
+	protected $filename = '';
+	protected $lastMTime = 0;
+
+	public function __construct($filename)
+	{
+		$this->filename = $filename;
+		$this->lastMTime = filemtime($filename);
+	}
+
+	public function getFilename()
+	{
+		return $this->filename;
+	}
+
+	public function updated()
+	{
+		clearstatcache();
+
+		if ( is_file($this->filename) === false )
+		{
+			return false;
+		}
+
+		$fileMTime = filemtime($this->filename);
+
+		if ( $fileMTime > $this->lastMTime )
+		{
+			$this->lastMTime = $fileMTime;
+			return true;
+		}
+
+		return false;
+	}
 }
 
-echo 'Watch list:', PHP_EOL;
-echo '  - '.implode(PHP_EOL.'  - ', array_map('basename', $files)), PHP_EOL;
-echo PHP_EOL;
+class Module
+{
+	protected $name = '';
+	protected $templateDirectory = '';
+	/** @var Template[] */
+	protected $templates = array();
 
-echo "Start watching module: ", $module->get('name'), ' ', $watchDir , PHP_EOL;
+	public function __construct($name, $templateDirectory)
+	{
+		$this->name = $name;
+		$this->templateDirectory = $templateDirectory;
+
+		/** @var SplFileInfo[] $files */
+		$files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($templateDirectory));
+
+		foreach ( $files as $file )
+		{
+			$this->templates[] = new Template($file->getPathname());
+		}
+	}
+
+	public function getName()
+	{
+		return $this->name;
+	}
+
+	public function hasUpdate()
+	{
+		$hasUpdate = false;
+
+		foreach ( $this->templates as $template )
+		{
+			if ( $template->updated() === true )
+			{
+				echo sprintf('[%s] update: %s', date('Y-m-d H:i:s'), $template->getFilename()), PHP_EOL; // TODO >> use observer
+				$hasUpdate = true;
+			}
+		}
+
+		return $hasUpdate;
+	}
+
+	function update()
+	{
+		$updateSuccess = new XCube_Delegate();
+		$updateSuccess->register('Legacy_ModuleUpdateAction.UpdateSuccess');
+
+		$updateFail = new XCube_Delegate();
+		$updateFail->register('Legacy_ModuleUpdateAction.UpdateFail');
+
+		$module = get_module($this->name);
+
+		$dirname = $module->get('dirname');
+		$installer = Legacy_ModuleInstallUtils::createUpdater($dirname);
+		$installer->setCurrentXoopsModule($module);
+
+		// Load the manifesto, and set it as the target object.
+		$module->loadInfoAsVar($dirname);
+		$module->set('name', $module->get('name'));
+		$installer->setTargetXoopsModule($module);
+		$installer->executeUpgrade();
+
+		if ( $installer->mLog->hasError() === false )
+		{
+			$updateSuccess->call(new XCube_Ref($module), new XCube_Ref($installer->mLog));
+			XCube_DelegateUtils::call(
+				'Legacy.Admin.Event.ModuleUpdate.' . ucfirst($dirname . '.Success'),
+				new XCube_Ref($module),
+				new XCube_Ref($installer->mLog));
+			$success = true;
+		}
+		else
+		{
+			$updateFail->call(new XCube_Ref($module), new XCube_Ref($installer->mLog));
+			XCube_DelegateUtils::call(
+				'Legacy.Admin.Event.ModuleUpdate.' . ucfirst($dirname . '.Fail'),
+				new XCube_Ref($module),
+				new XCube_Ref($installer->mLog));
+			$success = false;
+		}
+
+
+/*		foreach ($installer->mLog->mMessages as $message)
+		{
+			echo sprintf('[%s] update: %s', date('Y-m-d H:i:s'), $message['message']), PHP_EOL; // TODO >> observer
+		}
+*/
+		return $success;
+	}
+}
+
+echo "Listing up template files...", PHP_EOL;
+
+/** @var Module[] $modules */
+$modules = array();
+
+foreach ( $templateDirectories as $moduleDirectoryName => $templateDirectory )
+{
+	$modules[] = new Module($moduleDirectoryName, $templateDirectory);
+}
+
+echo "Start watching update", PHP_EOL;
 echo "To stop watching: Ctrl + C", PHP_EOL;
 
 while ( true )
 {
-	$hasUpdate = false;
-	clearstatcache();
-
-	foreach ( $files as $file )
+	foreach ( $modules as $module )
 	{
-		if ( $file->isFile() === false )
+		if ( $module->hasUpdate() === true )
 		{
-			continue;
-		}
+			$success = $module->update();
 
-		if ( $file->getMTime() > $file->lastMTime )
-		{
-			echo sprintf('[%s] update: %s', date('Y-m-d H:i:s'), $file), PHP_EOL;
-			$hasUpdate = true;
-		}
-
-		$file->lastMTime = $file->getMTime();
-	}
-
-	if ( $hasUpdate === true )
-	{
-		$success = execute_module_update($dirname);
-
-		if ( $success === true )
-		{
-			echo sprintf('[%s] success update module: %s', date('Y-m-d H:i:s'), $dirname), PHP_EOL;
-		}
-		else
-		{
-			echo sprintf('[%s] fail update module: %s', date('Y-m-d H:i:s'), $dirname), PHP_EOL;
+			if ( $success === true )
+			{
+				echo sprintf('[%s] success update module: %s', date('Y-m-d H:i:s'), $module->getName()), PHP_EOL;
+			}
+			else
+			{
+				echo sprintf('[%s] fail update module: %s', date('Y-m-d H:i:s'), $module->getName()), PHP_EOL;
+			}
 		}
 	}
 
