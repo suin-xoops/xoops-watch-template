@@ -83,6 +83,13 @@ $controller->_setupTextFilter();
 $controller->_setupConfig();
 $controller->_setupDebugger();
 error_reporting(E_ALL ^ E_STRICT);//TODO
+
+$dir = XOOPS_MODULE_PATH.'/legacy/class/interface/';
+$interfaces = glob($dir.'*.php');
+foreach ( $interfaces as $file ) { 
+	        require_once $file;
+}
+
 $controller->_processPreBlockFilter();
 $controller->_setupUser();
 $controller->setupModuleContext();
